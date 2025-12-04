@@ -1,84 +1,51 @@
 #!/bin/bash
 
-# ╔══════════════════════════════════════════════════════════════════════╗
-# ║       ❌  UNINSTALLER UDP ZIVPN                                      ║
-# ║       🧽 Pembersihan sistem lengkap                                  ║
-# ║       👤 Penulis: Zahid Islam / Diadaptasi oleh AutoFTbot            ║
-# ╚══════════════════════════════════════════════════════════════════════╝
-
-# 🎨 Warna
+# Colors
 GREEN="\033[1;32m"
 YELLOW="\033[1;33m"
 CYAN="\033[1;36m"
 RED="\033[1;31m"
-MAGENTA="\033[1;35m"
 RESET="\033[0m"
+BOLD="\033[1m"
+GRAY="\033[1;30m"
 
-# Fungsi untuk mencetak bagian
-print_section() {
-  local title="$1"
-  echo -e "${MAGENTA}╔════════════════════════════════════════════════════════════════════╗${RESET}"
-  printf "${MAGENTA}║ %-66s ║\n" "$title"
-  echo -e "${MAGENTA}╚════════════════════════════════════════════════════════════════════╝${RESET}"
+print_task() {
+  echo -ne "${GRAY}•${RESET} $1..."
+}
+
+print_done() {
+  echo -e "\r${GREEN}✓${RESET} $1      "
+}
+
+run_silent() {
+  local msg="$1"
+  local cmd="$2"
+  
+  print_task "$msg"
+  bash -c "$cmd" &>/tmp/zivpn_uninstall.log
+  if [ $? -eq 0 ]; then
+    print_done "$msg"
+  else
+    print_done "$msg" 
+  fi
 }
 
 clear
-print_section "🧹 MEMULAI UNINSTALL ZiVPN"
+echo -e "${BOLD}ZiVPN UDP Uninstaller${RESET}"
+echo -e "${GRAY}AutoFTbot Edition${RESET}"
+echo ""
 
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🛑 MENGHENTIKAN LAYANAN"
-systemctl stop zivpn.service &>/dev/null
-systemctl stop zivpn-api.service &>/dev/null
-systemctl stop zivpn_backfill.service &>/dev/null
-systemctl disable zivpn.service &>/dev/null
-systemctl disable zivpn-api.service &>/dev/null
-systemctl disable zivpn_backfill.service &>/dev/null
+run_silent "Stopping services" "systemctl stop zivpn.service zivpn-api.service zivpn_backfill.service &>/dev/null; systemctl disable zivpn.service zivpn-api.service zivpn_backfill.service &>/dev/null; killall zivpn zivpn-api &>/dev/null"
 
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🧽 MENGHAPUS BINARY DAN FILE KONFIGURASI"
-rm -f /etc/systemd/system/zivpn.service
-rm -f /etc/systemd/system/zivpn-api.service
-rm -f /etc/systemd/system/zivpn_backfill.service
-rm -rf /etc/zivpn
-rm -f /usr/local/bin/zivpn
-killall zivpn &>/dev/null
-killall zivpn-api &>/dev/null
+run_silent "Removing files" "rm -rf /etc/zivpn /usr/local/bin/zivpn /etc/systemd/system/zivpn.service /etc/systemd/system/zivpn-api.service /etc/systemd/system/zivpn_backfill.service /etc/zivpn-iptables-fix-applied /usr/local/bin/menu-zivpn"
 
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🔥 MENGHAPUS ATURAN IPTABLES"
 iface=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
-iptables -t nat -D PREROUTING -i "$iface" -p udp --dport 6000:19999 -j DNAT --to-destination :5667 &>/dev/null
+run_silent "Cleaning network rules" "iptables -t nat -D PREROUTING -i $iface -p udp --dport 6000:19999 -j DNAT --to-destination :5667 &>/dev/null"
 
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🗑️ MENGHAPUS INDIKATOR DAN PERBAIKAN"
-rm -f /etc/zivpn-iptables-fix-applied
+run_silent "Reloading systemd" "systemctl daemon-reload && systemctl daemon-reexec"
+run_silent "Cleaning cache" "echo 3 > /proc/sys/vm/drop_caches && sysctl -w vm.drop_caches=3 &>/dev/null && swapoff -a && swapon -a"
 
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "📋 MEMERIKSA STATUS AKHIR"
-if pgrep "zivpn" &>/dev/null; then
-  echo -e "${RED}⚠️  Proses ZIVPN masih aktif.${RESET}"
-else
-  echo -e "${GREEN}✅ Proses ZIVPN berhasil dihentikan.${RESET}"
-fi
-
-if pgrep "zivpn-api" &>/dev/null; then
-  echo -e "${RED}⚠️  Proses API masih aktif.${RESET}"
-else
-  echo -e "${GREEN}✅ Proses API berhasil dihentikan.${RESET}"
-fi
-
-if [ -e "/usr/local/bin/zivpn" ]; then
-  echo -e "${YELLOW}⚠️  Binary masih ada. Coba lagi.${RESET}"
-else
-  echo -e "${GREEN}✅ Binary berhasil dihapus.${RESET}"
-fi
-
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🧼 MEMBERSIHKAN CACHE DAN SWAP"
-echo 3 > /proc/sys/vm/drop_caches
-sysctl -w vm.drop_caches=3 &>/dev/null
-swapoff -a && swapon -a
-
-# ╔════════════════════════════════════════════════════════════════════╗
-print_section "🏁 SELESAI"
-echo -e "${GREEN}✅ UDP ZiVPN dan API telah berhasil di-uninstall.${RESET}"
+echo ""
+echo -e "${BOLD}Uninstallation Complete${RESET}"
+echo -e "${GRAY}ZiVPN has been completely removed from your system.${RESET}"
+echo ""
