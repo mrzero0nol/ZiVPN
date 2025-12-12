@@ -17,6 +17,7 @@ const (
 	BotConfigFile = "/etc/zivpn/bot-config.json"
 	ApiUrl        = "http://127.0.0.1:8080/api"
 	ApiKeyFile    = "/etc/zivpn/apikey"
+	DomainFile    = "/etc/zivpn/domain"
 )
 
 var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
@@ -527,5 +528,13 @@ func loadConfig() (BotConfig, error) {
 		return config, err
 	}
 	err = json.Unmarshal(file, &config)
+	
+	// Jika domain kosong di config, coba baca dari file domain
+	if config.Domain == "" {
+		if domainBytes, err := ioutil.ReadFile(DomainFile); err == nil {
+			config.Domain = strings.TrimSpace(string(domainBytes))
+		}
+	}
+	
 	return config, err
 }
