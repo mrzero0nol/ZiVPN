@@ -250,18 +250,17 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64) {
 		}
 	}
 
-	msgText := fmt.Sprintf(`  
-━━━━━━━━━━━━━━━━━━━━━  
-    MENU ZIVPN UDP  
-━━━━━━━━━━━━━━━━━━━━━  
- • Domain   : %s  
- • City     : %s  
- • ISP      : %s  
-━━━━━━━━━━━━━━━━━━━━━  
-`, domain, ipInfo.City, ipInfo.Isp) + "\n👇 Silakan pilih menu dibawah ini:"
+	msgText := fmt.Sprintf(`<blockquote>
+<b>MENU ZIVPN UDP</b>
+━━━━━━━━━━━━━━━━━━━━━
+ • Domain   : %s
+ • City     : %s
+ • ISP      : %s
+━━━━━━━━━━━━━━━━━━━━━</blockquote>
+👇 Silakan pilih menu dibawah ini:`, domain, ipInfo.City, ipInfo.Isp)
 
 	msg := tgbotapi.NewMessage(chatID, msgText)
-	msg.ParseMode = "Markdown"
+	msg.ParseMode = "HTML"
 
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
@@ -392,7 +391,15 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 		data := res["data"].(map[string]interface{})
 		ipInfo, _ := getIpInfo()
 		
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s  \nISP        : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```", 
+		msg := fmt.Sprintf(`<blockquote>
+<b>ACCOUNT ZIVPN UDP</b>
+━━━━━━━━━━━━━━━━━━━━━
+Password   : <code>%s</code>
+CITY       : %s
+ISP        : %s
+Domain     : %s
+Expired On : %s
+━━━━━━━━━━━━━━━━━━━━━</blockquote>`, 
 			data["password"], 
 			ipInfo.City, 
 			ipInfo.Isp, 
@@ -401,7 +408,7 @@ func createUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 		)
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
+		reply.ParseMode = "HTML"
 		deleteLastMessage(bot, chatID)
 		bot.Send(reply)
 		showMainMenu(bot, chatID)
@@ -453,7 +460,15 @@ func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 			domain = d
 		}
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n  ACCOUNT ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nPassword   : %s\nCITY       : %s\nISP        : %s\nDomain     : %s\nExpired On : %s\n━━━━━━━━━━━━━━━━━━━━━\n```", 
+		msg := fmt.Sprintf(`<blockquote>
+<b>ACCOUNT ZIVPN UDP</b>
+━━━━━━━━━━━━━━━━━━━━━
+Password   : <code>%s</code>
+CITY       : %s
+ISP        : %s
+Domain     : %s
+Expired On : %s
+━━━━━━━━━━━━━━━━━━━━━</blockquote>`, 
 			data["password"], 
 			ipInfo.City, 
 			ipInfo.Isp, 
@@ -462,7 +477,7 @@ func renewUser(bot *tgbotapi.BotAPI, chatID int64, username string, days int) {
 		)
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
+		reply.ParseMode = "HTML"
 		deleteLastMessage(bot, chatID)
 		bot.Send(reply)
 		showMainMenu(bot, chatID)
@@ -516,11 +531,20 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64) {
 		
 		ipInfo, _ := getIpInfo()
 
-		msg := fmt.Sprintf("```\n━━━━━━━━━━━━━━━━━━━━━\n           INFO ZIVPN UDP\n━━━━━━━━━━━━━━━━━━━━━\nDomain         : %s\nIP Public      : %s\nPort           : %s\nService        : %s\nCITY           : %s\nISP            : %s\n━━━━━━━━━━━━━━━━━━━━━\n```",
+		msg := fmt.Sprintf(`<blockquote>
+<b>INFO ZIVPN UDP</b>
+━━━━━━━━━━━━━━━━━━━━━
+Domain         : %s
+IP Public      : %s
+Port           : %s
+Service        : %s
+CITY           : %s
+ISP            : %s
+━━━━━━━━━━━━━━━━━━━━━</blockquote>`,
 			data["domain"], data["public_ip"], data["port"], data["service"], ipInfo.City, ipInfo.Isp)
 		
 		reply := tgbotapi.NewMessage(chatID, msg)
-		reply.ParseMode = "Markdown"
+		reply.ParseMode = "HTML"
 		deleteLastMessage(bot, chatID)
 		bot.Send(reply)
 		showMainMenu(bot, chatID)
