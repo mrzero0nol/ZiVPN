@@ -21,7 +21,7 @@ import (
 
 const (
 	BotConfigFile = "/etc/zivpn/bot-config.json"
-	ApiUrl        = "http://127.0.0.1:8080/api" //GANTI PORT JIKA PORT TERSEBUT UDAH TERPAKAI
+	ApiUrl        = "http://127.0.0.1:8080/api"
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
 )
