@@ -1,12 +1,17 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,10 +26,12 @@ import (
 
 const (
 	BotConfigFile = "/etc/zivpn/bot-config.json"
-	ApiUrl        = "http://127.0.0.1:8080/api"
+	ApiPortFile   = "/etc/zivpn/api_port"
 	ApiKeyFile    = "/etc/zivpn/apikey"
 	DomainFile    = "/etc/zivpn/domain"
 )
+
+var ApiUrl = "http://127.0.0.1:8080/api"
 
 var ApiKey = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
 
@@ -68,6 +75,12 @@ func main() {
 		ApiKey = strings.TrimSpace(string(keyBytes))
 	}
 
+	// Load API Port
+	if portBytes, err := ioutil.ReadFile(ApiPortFile); err == nil {
+		port := strings.TrimSpace(string(portBytes))
+		ApiUrl = fmt.Sprintf("http://127.0.0.1:%s/api", port)
+	}
+
 	config, err := loadConfig()
 	if err != nil {
 		log.Fatal("Gagal memuat konfigurasi bot:", err)
@@ -107,6 +120,14 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfi
 		return
 	}
 
+	// Handle Document Upload (Restore) - Admin Only
+	if msg.Document != nil && msg.From.ID == config.AdminID {
+		if state, exists := userStates[msg.From.ID]; exists && state == "waiting_restore_file" {
+			processRestoreFile(bot, msg, config)
+			return
+		}
+	}
+
 	if msg.IsCommand() {
 		switch msg.Command() {
 		case "start":
@@ -128,6 +149,19 @@ func handleCallback(bot *tgbotapi.BotAPI, query *tgbotapi.CallbackQuery, config 
 		systemInfo(bot, chatID, config)
 	case query.Data == "cancel":
 		cancelOperation(bot, chatID, userID, config)
+
+	case query.Data == "menu_admin":
+		if userID == config.AdminID {
+			showBackupRestoreMenu(bot, chatID)
+		}
+	case query.Data == "menu_backup_action":
+		if userID == config.AdminID {
+			performBackup(bot, chatID)
+		}
+	case query.Data == "menu_restore_action":
+		if userID == config.AdminID {
+			startRestore(bot, chatID, userID)
+		}
 
 	// Payment Check
 	case strings.HasPrefix(query.Data, "check_payment:"):
@@ -357,6 +391,14 @@ func showMainMenu(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 			tgbotapi.NewInlineKeyboardButtonData("📊 System Info", "menu_info"),
 		),
 	)
+
+	// Add Admin Panel for Admin
+	if chatID == config.AdminID {
+		keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🛠️ Admin Panel", "menu_admin"),
+		))
+	}
+
 	msg.ReplyMarkup = keyboard
 	sendAndTrack(bot, msg)
 }
@@ -463,6 +505,156 @@ func systemInfo(bot *tgbotapi.BotAPI, chatID int64, config *BotConfig) {
 	} else {
 		replyError(bot, chatID, "Gagal mengambil info.")
 	}
+}
+
+func showBackupRestoreMenu(bot *tgbotapi.BotAPI, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID, "🛠️ *Admin Panel*\nSilakan pilih menu:")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⬇️ Backup Data", "menu_backup_action"),
+			tgbotapi.NewInlineKeyboardButtonData("⬆️ Restore Data", "menu_restore_action"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("❌ Kembali", "cancel"),
+		),
+	)
+	sendAndTrack(bot, msg)
+}
+
+func performBackup(bot *tgbotapi.BotAPI, chatID int64) {
+	sendMessage(bot, chatID, "⏳ Sedang membuat backup...")
+
+	// Files to backup
+	files := []string{
+		"/etc/zivpn/config.json",
+		"/etc/zivpn/users.json",
+		"/etc/zivpn/bot-config.json",
+		"/etc/zivpn/domain",
+		"/etc/zivpn/apikey",
+	}
+
+	buf := new(bytes.Buffer)
+	zipWriter := zip.NewWriter(buf)
+
+	for _, file := range files {
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			continue
+		}
+
+		f, err := os.Open(file)
+		if err != nil {
+			continue
+		}
+		defer f.Close()
+
+		w, err := zipWriter.Create(filepath.Base(file))
+		if err != nil {
+			continue
+		}
+
+		if _, err := io.Copy(w, f); err != nil {
+			continue
+		}
+	}
+
+	zipWriter.Close()
+
+	fileName := fmt.Sprintf("zivpn-backup-%s.zip", time.Now().Format("20060102-150405"))
+	
+	// Create a temporary file for the upload
+	tmpFile := "/tmp/" + fileName
+	if err := ioutil.WriteFile(tmpFile, buf.Bytes(), 0644); err != nil {
+		replyError(bot, chatID, "Gagal membuat file backup.")
+		return
+	}
+	defer os.Remove(tmpFile)
+
+	doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(tmpFile))
+	doc.Caption = "✅ Backup Data ZiVPN"
+	
+	deleteLastMessage(bot, chatID)
+	bot.Send(doc)
+}
+
+func startRestore(bot *tgbotapi.BotAPI, chatID int64, userID int64) {
+	userStates[userID] = "waiting_restore_file"
+	sendMessage(bot, chatID, "⬆️ *Restore Data*\n\nSilakan kirim file ZIP backup Anda sekarang.\n\n⚠️ PERINGATAN: Data saat ini akan ditimpa!")
+}
+
+func processRestoreFile(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, config *BotConfig) {
+	chatID := msg.Chat.ID
+	userID := msg.From.ID
+	
+	resetState(userID)
+	sendMessage(bot, chatID, "⏳ Sedang memproses file...")
+
+	// Download file
+	fileID := msg.Document.FileID
+	file, err := bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		replyError(bot, chatID, "Gagal mengunduh file.")
+		return
+	}
+
+	fileUrl := file.Link(config.BotToken)
+	resp, err := http.Get(fileUrl)
+	if err != nil {
+		replyError(bot, chatID, "Gagal mengunduh file content.")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		replyError(bot, chatID, "Gagal membaca file.")
+		return
+	}
+
+	// Unzip
+	zipReader, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		replyError(bot, chatID, "File bukan format ZIP yang valid.")
+		return
+	}
+
+	for _, f := range zipReader.File {
+		// Security check: only allow specific files
+		validFiles := map[string]bool{
+			"config.json": true,
+			"users.json": true,
+			"bot-config.json": true,
+			"domain": true,
+			"apikey": true,
+		}
+		
+		if !validFiles[f.Name] {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		defer rc.Close()
+
+		dstPath := filepath.Join("/etc/zivpn", f.Name)
+		dst, err := os.Create(dstPath)
+		if err != nil {
+			continue
+		}
+		defer dst.Close()
+
+		io.Copy(dst, rc)
+	}
+
+	// Restart Services
+	exec.Command("systemctl", "restart", "zivpn").Run()
+	exec.Command("systemctl", "restart", "zivpn-api").Run()
+	
+	msgSuccess := tgbotapi.NewMessage(chatID, "✅ Restore Berhasil!\nService ZiVPN telah direstart.")
+	bot.Send(msgSuccess)
+	showMainMenu(bot, chatID, config)
 }
 
 func loadConfig() (BotConfig, error) {

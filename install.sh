@@ -53,9 +53,10 @@ if [ -f /usr/local/bin/zivpn ]; then
 fi
 
 run_silent "Updating system" "sudo apt-get update"
+run_silent "Setting Timezone" "sudo timedatectl set-timezone Asia/Jakarta"
 
 if ! command -v go &> /dev/null; then
-  run_silent "Installing dependencies" "sudo apt-get install -y golang git"
+  run_silent "Installing dependencies" "sudo apt-get install -y golang git net-tools"
 else
   print_done "Dependencies ready"
 fi
@@ -91,6 +92,15 @@ echo "$api_key" > /etc/zivpn/apikey
 run_silent "Configuring" "wget -q https://raw.githubusercontent.com/AutoFTbot/ZiVPN/main/config.json -O /etc/zivpn/config.json"
 
 run_silent "Generating SSL" "openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 -subj '/C=ID/ST=Jawa Barat/L=Bandung/O=AutoFTbot/OU=IT Department/CN=$domain' -keyout /etc/zivpn/zivpn.key -out /etc/zivpn/zivpn.crt"
+
+# Find a free API port
+print_task "Finding available API Port"
+API_PORT=8080
+while netstat -tuln | grep -q ":$API_PORT "; do
+    ((API_PORT++))
+done
+echo "$API_PORT" > /etc/zivpn/api_port
+print_done "API Port selected: ${CYAN}$API_PORT${RESET}"
 
 cat >> /etc/sysctl.conf <<END
 net.core.default_qdisc=fq
@@ -225,18 +235,24 @@ fi
 
 run_silent "Starting Services" "systemctl enable zivpn.service && systemctl start zivpn.service && systemctl enable zivpn-api.service && systemctl start zivpn-api.service"
 
+# Setup Cron for Auto-Expire
+echo -e "${YELLOW}Setting up Cron Job for Auto-Expire...${NC}"
+cron_cmd="0 0 * * * /usr/bin/curl -s -X POST -H \"X-API-Key: \$(cat /etc/zivpn/apikey)\" http://127.0.0.1:\$(cat /etc/zivpn/api_port)/api/cron/expire >> /var/log/zivpn-cron.log 2>&1"
+(crontab -l 2>/dev/null | grep -v "/api/cron/expire"; echo "$cron_cmd") | crontab -
+print_done "Cron Job Configured"
+
 iface=$(ip -4 route ls | grep default | grep -Po '(?<=dev )(\S+)' | head -1)
 iptables -t nat -A PREROUTING -i "$iface" -p udp --dport 6000:19999 -j DNAT --to-destination :5667 &>/dev/null
 ufw allow 6000:19999/udp &>/dev/null
 ufw allow 5667/udp &>/dev/null
-ufw allow 8080/tcp &>/dev/null
+ufw allow $API_PORT/tcp &>/dev/null
 
 rm -f "$0" install.tmp install.log &>/dev/null
 
 echo ""
 echo -e "${BOLD}Installation Complete${RESET}"
 echo -e "Domain  : ${CYAN}$domain${RESET}"
-echo -e "API     : ${CYAN}Port 8080${RESET}"
+echo -e "API     : ${CYAN}$API_PORT${RESET}"
 echo -e "Token   : ${CYAN}$api_key${RESET}"
 echo -e "Dev     : ${CYAN}https://t.me/AutoFTBot${RESET}"
 echo ""
