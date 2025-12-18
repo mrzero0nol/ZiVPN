@@ -20,7 +20,7 @@ const (
 	UserDB     = "/etc/zivpn/users.json"
 	DomainFile = "/etc/zivpn/domain"
 	ApiKeyFile = "/etc/zivpn/apikey"
-	Port       = ":8080"
+	Port       = "/etc/zivpn/api_port"
 )
 
 var AuthToken = "AutoFtBot-agskjgdvsbdreiWG1234512SDKrqw"
@@ -39,13 +39,11 @@ type Config struct {
 type UserRequest struct {
 	Password string `json:"password"`
 	Days     int    `json:"days"`
-	IpLimit  int    `json:"ip_limit"`
 }
 
 type UserStore struct {
 	Password string `json:"password"`
 	Expired  string `json:"expired"`
-	IpLimit  int    `json:"ip_limit"`
 	Status   string `json:"status"`
 }
 
@@ -71,9 +69,6 @@ func main() {
 	http.HandleFunc("/api/users", authMiddleware(listUsers))
 	http.HandleFunc("/api/info", authMiddleware(getSystemInfo))
 	http.HandleFunc("/api/cron/expire", authMiddleware(checkExpiration))
-
-	// Start IP Limit Monitor (Background)
-	go monitorUserLimits()
 
 	log.Printf("Server started at :%d", *port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
@@ -140,10 +135,6 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	expDate := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour).Format("2006-01-02")
-	limit := req.IpLimit
-	if limit <= 0 {
-		limit = 0 // unlimited
-	}
 
 	users, err := loadUsers()
 	if err != nil {
@@ -154,7 +145,6 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	newUser := UserStore{
 		Password: req.Password,
 		Expired:  expDate,
-		IpLimit:  limit,
 		Status:   "active",
 	}
 	users = append(users, newUser)
@@ -177,7 +167,6 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, true, "User berhasil dibuat", map[string]string{
 		"password": req.Password,
 		"expired":  expDate,
-		"ip_limit": fmt.Sprintf("%d", limit),
 		"domain":   domain,
 	})
 }
@@ -349,7 +338,6 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Expired  string `json:"expired"`
 		Status   string `json:"status"`
-		IpLimit  int    `json:"ip_limit"`
 	}
 
 	userList := []UserInfo{}
@@ -367,7 +355,6 @@ func listUsers(w http.ResponseWriter, r *http.Request) {
 			Password: u.Password,
 			Expired:  u.Expired,
 			Status:   status,
-			IpLimit:  u.IpLimit,
 		})
 	}
 
@@ -397,92 +384,7 @@ func getSystemInfo(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, true, "System Info", info)
 }
 
-func monitorUserLimits() {
-	// Regex for JSON log format: {"addr": "IP:PORT", "id": "USERNAME", ...}
-	userRegex := regexp.MustCompile(`"id":\s*"([^"]+)"`)
-	ipRegex := regexp.MustCompile(`"addr":\s*"([^"]+)"`)
 
-	for {
-		time.Sleep(10 * time.Second)
-
-		users, err := loadUsers()
-		if err != nil {
-			log.Println("Error loading users for monitor:", err)
-			continue
-		}
-
-		userLimits := make(map[string]int)
-		for _, u := range users {
-			if u.IpLimit > 0 {
-				userLimits[u.Password] = u.IpLimit
-			}
-		}
-
-		if len(userLimits) == 0 {
-			continue
-		}
-		cmd := exec.Command("journalctl", "-u", "zivpn.service", "--since", "20 seconds ago", "--no-pager")
-		out, err := cmd.Output()
-		if err != nil {
-			log.Println("Error reading logs:", err)
-			continue
-		}
-		logContent := string(out)
-		
-		activeIps := make(map[string]map[string]bool)
-
-		lines := strings.Split(logContent, "\n")
-
-		for _, l := range lines {
-			// Check for JSON fields
-			if strings.Contains(l, "\"id\":") && strings.Contains(l, "\"addr\":") {
-				// Use Regex for robust parsing
-				userMatch := userRegex.FindStringSubmatch(l)
-				ipMatch := ipRegex.FindStringSubmatch(l)
-
-				if len(userMatch) > 1 && len(ipMatch) > 1 {
-					username := strings.Trim(userMatch[1], ",")
-					ip := strings.Trim(ipMatch[1], ",")
-					
-					// Remove port from IP if present (e.g., 192.168.1.1:12345)
-					if strings.Contains(ip, ":") {
-						parts := strings.Split(ip, ":")
-						ip = parts[0]
-					}
-
-					if _, exists := userLimits[username]; exists {
-						if activeIps[username] == nil {
-							activeIps[username] = make(map[string]bool)
-						}
-						activeIps[username][ip] = true
-					}
-				}
-			}
-		}
-
-		// Debug Logging
-		debugLog := ""
-		for user, ips := range activeIps {
-			debugLog += fmt.Sprintf("User: %s, Active IPs: %d %v\n", user, len(ips), ips)
-		}
-		if debugLog != "" {
-			f, err := os.OpenFile("/var/log/zivpn-debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err == nil {
-				f.WriteString(fmt.Sprintf("[%s] Active Users:\n%s", time.Now().Format("2006-01-02 15:04:05"), debugLog))
-				f.Close()
-			}
-		}
-
-		// Check limits
-		for user, ips := range activeIps {
-			limit := userLimits[user]
-			if len(ips) > limit {
-				log.Printf("User %s exceeded IP limit (Active: %d, Limit: %d). Revoking access.\n", user, len(ips), limit)
-				revokeAccess(user)
-			}
-		}
-	}
-}
 
 func checkExpiration(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
