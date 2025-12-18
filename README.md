@@ -13,7 +13,6 @@
     *   **Paid Bot**: Integrasi Pakasir (QRIS) dengan **Admin Panel** tersembunyi.
 *   **Robust User Management**:
     *   **Auto-Revoke**: User expired otomatis disconnect setiap jam 00:00 WIB (via Cron).
-    *   **Real-time IP Limit**: Deteksi login berlebih setiap 10 detik dan auto-kick.
     *   **Clean Deletion**: Hapus user bersih total dari config dan database.
 *   **Dynamic Security**: API Key dan sertifikat SSL digenerate otomatis.
 *   **High Performance**: Core UDP ZiVPN yang dioptimalkan.
@@ -77,7 +76,7 @@ API berjalan di port `8080`. Gunakan **API Key** pada header `X-API-Key`.
 ### 1. Create User
 *   **Endpoint**: `/api/user/create`
 *   **Method**: `POST`
-*   **Body**: `{ "password": "user1", "days": 30, "ip_limit": 2 }`
+*   **Body**: `{ "password": "user1", "days": 30 }`
 
 ### 2. Delete User
 *   **Endpoint**: `/api/user/delete`
